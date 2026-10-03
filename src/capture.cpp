@@ -316,9 +316,12 @@ struct ProcessResult {
 };
 
 ProcessResult runProcess(const QString &program, const QStringList &arguments,
-                         const QByteArray &input = {}, int timeoutMs = 10000) {
+                         const QByteArray &input = {}, int timeoutMs = 10000,
+                         const QProcessEnvironment &environment = {}) {
   QProcess process;
   process.setProcessChannelMode(QProcess::SeparateChannels);
+  if (!environment.isEmpty())
+    process.setProcessEnvironment(environment);
   process.start(program, arguments);
   if (!process.waitForStarted(2000))
     return {{}, process.errorString().toUtf8(), -1, false};
@@ -2602,6 +2605,11 @@ QString recognizeText(const QImage &image, QString &error) {
     languages =
         qEnvironmentVariable("OMARCHY_OCR_LANGS", QStringLiteral("eng"));
   languages = languages.trimmed();
+  // Tesseract's OpenMP build starts a thread per core and spins them; on a
+  // screenshot that costs about three times the CPU and adds wall time
+  // instead of saving it. One thread reads the same text faster.
+  QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+  environment.insert(QStringLiteral("OMP_THREAD_LIMIT"), QStringLiteral("1"));
   const ProcessResult result = runProcess(
       QStringLiteral("tesseract"),
       {QStringLiteral("stdin"), QStringLiteral("stdout"),
@@ -2610,7 +2618,7 @@ QString recognizeText(const QImage &image, QString &error) {
        QStringLiteral("-l"), languages,
        QStringLiteral("--dpi"), QStringLiteral("300"),
        QStringLiteral("-c"), QStringLiteral("preserve_interword_spaces=1")},
-      payload, 30000);
+      payload, 30000, environment);
   if (!result.finished || result.exitCode != 0) {
     error = QStringLiteral("OCR failed for languages %1: %2")
                 .arg(languages, QString::fromUtf8(result.error).trimmed());

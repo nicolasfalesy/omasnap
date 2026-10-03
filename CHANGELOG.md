@@ -59,6 +59,9 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ### Fixed
 
+- Run OCR's tesseract on one thread. Its OpenMP pool spun on every core and
+  made text grabs slower, not faster: a full-screen read drops from about
+  1.7 s to 1.0 s with a third of the CPU time, and reads the same text.
 - Retain logical display dimensions inside exported PNGs, so captures from
   scaled monitors reopen at the correct size from Omaroll, files, or the
   clipboard without downsampling or slowing the fast PNG encoder.

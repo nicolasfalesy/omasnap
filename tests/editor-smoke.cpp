@@ -13782,6 +13782,44 @@ int main(int argc, char **argv) {
     qputenv("OMARCHY_OCR_LANGS", savedOmarchyLangs);
   if (!fallbackOcr.contains(QStringLiteral("OCR smoke test 42")))
     return 65;
+  // Tesseract's OpenMP pool spins on every core for no gain on a screenshot:
+  // a single thread reads the same text faster. Put a wrapper ahead of the
+  // real tesseract on PATH that records OMP_THREAD_LIMIT, then runs it.
+  {
+    const QString realTesseract =
+        QStandardPaths::findExecutable(QStringLiteral("tesseract"));
+    const QTemporaryDir wrapperDirectory;
+    if (realTesseract.isEmpty() || !wrapperDirectory.isValid())
+      return 231;
+    const QString recorded =
+        wrapperDirectory.filePath(QStringLiteral("omp-thread-limit"));
+    QFile wrapper(wrapperDirectory.filePath(QStringLiteral("tesseract")));
+    if (!wrapper.open(QIODevice::WriteOnly) ||
+        wrapper.write(QStringLiteral("#!/bin/sh\n"
+                                     "printf '%s' \"${OMP_THREAD_LIMIT-unset}\" > '%1'\n"
+                                     "exec '%2' \"$@\"\n")
+                          .arg(recorded, realTesseract)
+                          .toUtf8()) < 0 ||
+        !wrapper.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                QFileDevice::ExeOwner))
+      return 231;
+    wrapper.close();
+    const QByteArray savedPath = qgetenv("PATH");
+    qputenv("PATH", QFile::encodeName(wrapperDirectory.path()) + ':' + savedPath);
+    const QString wrappedOcr = recognizeText(ocrImage, ocrError);
+    qputenv("PATH", savedPath);
+    QFile recordedLimit(recorded);
+    const QByteArray threadLimit =
+        recordedLimit.open(QIODevice::ReadOnly) ? recordedLimit.readAll()
+                                                : QByteArrayLiteral("not run");
+    if (!wrappedOcr.contains(QStringLiteral("OCR smoke test 42")) ||
+        threadLimit != "1") {
+      qWarning().noquote()
+          << QStringLiteral("OCR ran tesseract with OMP_THREAD_LIMIT=%1, not 1")
+                 .arg(QString::fromUtf8(threadLimit));
+      return 231;
+    }
+  }
   QTest::mouseMove(&editor, QPoint(400, 312), 20);
   QTest::keyClick(&editor, Qt::Key_T);
   QTest::keyClick(&editor, Qt::Key_Escape);
