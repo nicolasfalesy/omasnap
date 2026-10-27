@@ -48,6 +48,7 @@
 #include <QScopeGuard>
 #include <QStandardPaths>
 #include <QThread>
+#include <QThreadPool>
 #include <QFile>
 #include <QSaveFile>
 #include <QFileInfo>
@@ -3454,11 +3455,14 @@ bool runSameSecondSaveChecks(QString &error) {
         expected.insert(body);
         paths.push_back(path);
       }
-      // Every saver starts at once, like two captures saved in one second.
+      // Every saver starts at once, like two captures saved in one second, in a
+      // pool sized for all of them; the global pool is only as wide as the CPU.
       std::atomic<int> ready = 0;
+      QThreadPool pool;
+      pool.setMaxThreadCount(savers);
       QVector<QFuture<QString>> saves;
       for (const QString &path : std::as_const(paths)) {
-        saves.push_back(QtConcurrent::run([path, keepSource, &ready] {
+        saves.push_back(QtConcurrent::run(&pool, [path, keepSource, &ready] {
           ++ready;
           while (ready.load() < savers)
             QThread::yieldCurrentThread();
@@ -3468,6 +3472,7 @@ bool runSameSecondSaveChecks(QString &error) {
                                   path, saveError, QStringLiteral("race"));
         }));
       }
+      pool.waitForDone();
       for (const QFuture<QString> &save : saves) {
         if (save.result().isEmpty()) {
           error = QStringLiteral("A same-second save failed (%1)")
