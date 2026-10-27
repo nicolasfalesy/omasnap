@@ -39,6 +39,7 @@
 #include <QPainter>
 #include <QPixmap>
 #include <QProcess>
+#include <QScreen>
 #include <QSocketNotifier>
 #include <QShowEvent>
 #include <QCloseEvent>
@@ -1339,15 +1340,17 @@ protected:
   }
 
   void reopenInEditor() {
+    const QString monitor = screen() ? screen()->name() : QString();
     runAction([program = QCoreApplication::applicationFilePath(), path = path_,
-               document = pinDocument_]() mutable -> ActionResult {
+               document = pinDocument_, monitor]() mutable -> ActionResult {
       QString error;
       if (!document)
         document = copyPinDocument(path, error);
       if (!document)
         return {error, {}, {}};
       const QStringList arguments{QStringLiteral("--file"), document->path(),
-                                   QStringLiteral("--pin-document"), document->path()};
+                                   QStringLiteral("--pin-document"), document->path(),
+                                   QStringLiteral("--handoff-monitor"), monitor};
       if (!QProcess::startDetached(program, arguments))
         return {QStringLiteral("Could not start omasnap"), {}, document};
       return {{}, {}, document};
@@ -1652,7 +1655,7 @@ private:
     updateTimedMarker();
     QToolTip::hideText();
     showToast(expiry_.kept() ? QStringLiteral("Pinned")
-                             : QStringLiteral("Fades after 10 seconds"));
+                             : QStringLiteral("Fades after 7 seconds"));
   }
 
   QPainterPath cardPath() const {
